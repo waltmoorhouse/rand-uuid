@@ -136,6 +136,6 @@ jobs:
       - name: Test CLI (Windows)
         if: runner.os == 'Windows'
         run: |
-          ./uuid-gen.exe
-          ./uuid-gen.exe -v6
-          ./uuid-gen.exe -v7
+          .\uuid-gen.exe
+          .\uuid-gen.exe -v6
+          .\uuid-gen.exe -v7
