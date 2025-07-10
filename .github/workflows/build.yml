@@ -1,0 +1,141 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # Linux
+          - goos: linux
+            goarch: amd64
+            name: linux-amd64
+          - goos: linux
+            goarch: arm64
+            name: linux-arm64
+          - goos: linux
+            goarch: 386
+            name: linux-386
+          
+          # Windows
+          - goos: windows
+            goarch: amd64
+            name: windows-amd64
+            extension: .exe
+          - goos: windows
+            goarch: arm64
+            name: windows-arm64
+            extension: .exe
+          - goos: windows
+            goarch: 386
+            name: windows-386
+            extension: .exe
+          
+          # macOS
+          - goos: darwin
+            goarch: amd64
+            name: macos-amd64
+          - goos: darwin
+            goarch: arm64
+            name: macos-arm64
+          
+          # FreeBSD
+          - goos: freebsd
+            goarch: amd64
+            name: freebsd-amd64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          mkdir -p dist
+          go build -ldflags="-s -w" -o dist/uuid-gen-${{ matrix.name }}${{ matrix.extension }} .
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: uuid-gen-${{ matrix.name }}
+          path: dist/uuid-gen-${{ matrix.name }}${{ matrix.extension }}
+          retention-days: 30
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          find artifacts -name "uuid-gen-*" -type f -exec cp {} release/ \;
+          ls -la release/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Optional: Create a matrix job for testing on different platforms
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        go-version: ['1.20', '1.21']
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Run tests
+        run: |
+          go test -v ./...
+
+      - name: Test build
+        run: |
+          go build -o uuid-gen .
+
+      - name: Test CLI (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          ./uuid-gen
+          ./uuid-gen -v6
+          ./uuid-gen -v7
+
+      - name: Test CLI (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          ./uuid-gen.exe
+          ./uuid-gen.exe -v6
+          ./uuid-gen.exe -v7
